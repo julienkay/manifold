@@ -233,3 +233,236 @@ TEST(Hull, EmptyHull) {
   Manifold hull = Manifold::Hull(std::vector<vec3>());
   EXPECT_TRUE(hull.IsEmpty());
 }
+
+namespace {
+
+// Check the input cloud as well as the retained vertices: successful status and
+// closed topology alone do not exclude a self-overlapping hull.
+void ExpectSupportingPlanes(const Manifold& hull,
+                            const std::vector<vec3>& points) {
+  const auto mesh = hull.GetMeshGL64();
+  ASSERT_GT(mesh.NumTri(), 0);
+  for (size_t f = 0; f < mesh.NumTri(); ++f) {
+    const auto tri = mesh.GetTriVerts(f);
+    const auto a = mesh.GetVertPos(tri[0]);
+    const auto cross =
+        la::cross(mesh.GetVertPos(tri[1]) - a, mesh.GetVertPos(tri[2]) - a);
+    ASSERT_GT(la::length(cross), 0);
+    const auto normal = la::normalize(cross);
+    for (const auto& point : points) {
+      EXPECT_LE(la::dot(normal, point - a), 1e-10) << "Face " << f;
+    }
+  }
+}
+
+double HullWinding(const Manifold& hull, const vec3& point) {
+  const auto mesh = hull.GetMeshGL64();
+  double angle = 0;
+  for (size_t f = 0; f < mesh.NumTri(); ++f) {
+    const auto tri = mesh.GetTriVerts(f);
+    const auto u = mesh.GetVertPos(tri[0]) - point;
+    const auto v = mesh.GetVertPos(tri[1]) - point;
+    const auto w = mesh.GetVertPos(tri[2]) - point;
+    const auto lu = la::length(u), lv = la::length(v), lw = la::length(w);
+    angle += 2 * std::atan2(la::dot(u, la::cross(v, w)),
+                            lu * lv * lw + la::dot(u, v) * lw +
+                                la::dot(v, w) * lu + la::dot(w, u) * lv);
+  }
+  return angle / (4 * std::acos(-1.0));
+}
+
+}  // namespace
+
+TEST(Hull, TranslatedMinkowskiSupportingPlanes) {
+  // A translated triangle swept by a low-resolution sphere. Hex literals
+  // preserve the captured double coordinates, including source roundoff.
+  const std::vector<vec3> captured = {
+      {0x1.87de2a6aea95fp-2, 0x1.40a13ca48c6f8p+6, -0x1.56e2651d8d437p+0},
+      {0x1.1517a7bdb3891p-2, 0x1.40a13ca48c6f8p+6, -0x1.119c7b2e20612p+0},
+      {-0x1.00a6cad4d5761p-52, 0x1.40a13ca48c6f8p+6, -0x1.e9d5b505a53bcp-1},
+      {-0x1.1517a7bdb3898p-2, 0x1.40a13ca48c6f8p+6, -0x1.119c7b2e20612p+0},
+      {-0x1.87de2a6aea967p-2, 0x1.40a13ca48c6f8p+6, -0x1.56e2651d8d437p+0},
+      {-0x1.1517a7bdb389ap-2, 0x1.40a13ca48c6f8p+6, -0x1.9c284f0cfa25cp+0},
+      {-0x1.6cb7203bebf8ap-52, 0x1.40a13ca48c6f8p+6, -0x1.b8d9efb847e90p+0},
+      {0x1.1517a7bdb3890p-2, 0x1.40a13ca48c6f8p+6, -0x1.9c284f0cfa25cp+0},
+      {0x1.d906bcf328d44p-1, 0x1.3e770d5511086p+6, -0x1.56e2651d8d437p+0},
+      {0x1.4e7ae9144f0fap-1, 0x1.3e770d5511086p+6, -0x1.5f49e126cb773p-1},
+      {-0x1.b4e3f25d0099ep-53, 0x1.3e770d5511086p+6, -0x1.a97c1a8fe3650p-2},
+      {-0x1.4e7ae9144f0fdp-1, 0x1.3e770d5511086p+6, -0x1.5f49e126cb772p-1},
+      {-0x1.d906bcf328d48p-1, 0x1.3e770d5511086p+6, -0x1.56e2651d8d436p+0},
+      {-0x1.4e7ae9144f0ffp-1, 0x1.3e770d5511086p+6, -0x1.fe1fd9a7b4cb4p+0},
+      {-0x1.df55952eeb740p-52, 0x1.3e770d5511086p+6, -0x1.21b2e1cb90d6dp+1},
+      {0x1.4e7ae9144f0f8p-1, 0x1.3e770d5511086p+6, -0x1.fe1fd9a7b4cb6p+0},
+      {0x1.d906bcf328d44p-1, 0x1.3b6751003b334p+6, -0x1.56e2651d8d437p+0},
+      {0x1.4e7ae9144f0fap-1, 0x1.3b6751003b334p+6, -0x1.5f49e126cb773p-1},
+      {-0x1.b4e3f25d0099ep-53, 0x1.3b6751003b334p+6, -0x1.a97c1a8fe3650p-2},
+      {-0x1.4e7ae9144f0fdp-1, 0x1.3b6751003b334p+6, -0x1.5f49e126cb772p-1},
+      {-0x1.d906bcf328d48p-1, 0x1.3b6751003b334p+6, -0x1.56e2651d8d436p+0},
+      {-0x1.4e7ae9144f0ffp-1, 0x1.3b6751003b334p+6, -0x1.fe1fd9a7b4cb4p+0},
+      {-0x1.df55952eeb740p-52, 0x1.3b6751003b334p+6, -0x1.21b2e1cb90d6dp+1},
+      {0x1.4e7ae9144f0f8p-1, 0x1.3b6751003b334p+6, -0x1.fe1fd9a7b4cb6p+0},
+      {0x1.87de2a6aea961p-2, 0x1.393d21b0bfcc2p+6, -0x1.56e2651d8d437p+0},
+      {0x1.1517a7bdb3893p-2, 0x1.393d21b0bfcc2p+6, -0x1.119c7b2e20612p+0},
+      {-0x1.00a6cad4d5761p-52, 0x1.393d21b0bfcc2p+6, -0x1.e9d5b505a53bcp-1},
+      {-0x1.1517a7bdb389ap-2, 0x1.393d21b0bfcc2p+6, -0x1.119c7b2e20611p+0},
+      {-0x1.87de2a6aea969p-2, 0x1.393d21b0bfcc2p+6, -0x1.56e2651d8d437p+0},
+      {-0x1.1517a7bdb389bp-2, 0x1.393d21b0bfcc2p+6, -0x1.9c284f0cfa25cp+0},
+      {-0x1.6cb7203bebf8ap-52, 0x1.393d21b0bfcc2p+6, -0x1.b8d9efb847e90p+0},
+      {0x1.1517a7bdb3891p-2, 0x1.393d21b0bfcc2p+6, -0x1.9c284f0cfa25dp+0},
+      {0x1.55a7513f22807p+1, 0x1.390d970e5c86cp+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.474e80e97b9eep+1, 0x1.390d970e5c86cp+6, -0x1.020896fa0ebcap+1},
+      {0x1.24ab8bf1c52dbp+1, 0x1.390d970e5c86cp+6, -0x1.e75f8d48cfb61p+0},
+      {0x1.020896fa0ebc8p+1, 0x1.390d970e5c86cp+6, -0x1.020896fa0ebcap+1},
+      {0x1.e75f8d48cfb5dp+0, 0x1.390d970e5c86cp+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.020896fa0ebc8p+1, 0x1.390d970e5c86cp+6, -0x1.474e80e97b9f0p+1},
+      {0x1.24ab8bf1c52dbp+1, 0x1.390d970e5c86cp+6, -0x1.55a7513f22809p+1},
+      {0x1.474e80e97b9eep+1, 0x1.390d970e5c86cp+6, -0x1.474e80e97b9f0p+1},
+      {0x1.9aed3b2e8f62cp+1, 0x1.36e367bee11fap+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.784a4636d8f1ap+1, 0x1.36e367bee11fap+6, -0x1.a219a35962d3cp+0},
+      {0x1.24ab8bf1c52dbp+1, 0x1.36e367bee11fap+6, -0x1.5cd3b969f5f17p+0},
+      {0x1.a219a35962d38p+0, 0x1.36e367bee11fap+6, -0x1.a219a35962d3cp+0},
+      {0x1.5cd3b969f5f13p+0, 0x1.36e367bee11fap+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.a219a35962d38p+0, 0x1.36e367bee11fap+6, -0x1.784a4636d8f1cp+1},
+      {0x1.24ab8bf1c52dbp+1, 0x1.36e367bee11fap+6, -0x1.9aed3b2e8f62ep+1},
+      {0x1.784a4636d8f1ap+1, 0x1.36e367bee11fap+6, -0x1.784a4636d8f1cp+1},
+      {0x1.9aed3b2e8f62cp+1, 0x1.33d3ab6a0b4a8p+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.784a4636d8f1ap+1, 0x1.33d3ab6a0b4a8p+6, -0x1.a219a35962d3cp+0},
+      {0x1.24ab8bf1c52dbp+1, 0x1.33d3ab6a0b4a8p+6, -0x1.5cd3b969f5f17p+0},
+      {0x1.a219a35962d38p+0, 0x1.33d3ab6a0b4a8p+6, -0x1.a219a35962d3cp+0},
+      {0x1.5cd3b969f5f13p+0, 0x1.33d3ab6a0b4a8p+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.a219a35962d38p+0, 0x1.33d3ab6a0b4a8p+6, -0x1.784a4636d8f1cp+1},
+      {0x1.24ab8bf1c52dbp+1, 0x1.33d3ab6a0b4a8p+6, -0x1.9aed3b2e8f62ep+1},
+      {0x1.784a4636d8f1ap+1, 0x1.33d3ab6a0b4a8p+6, -0x1.784a4636d8f1cp+1},
+      {0x1.55a7513f22808p+1, 0x1.31a97c1a8fe36p+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.474e80e97b9eep+1, 0x1.31a97c1a8fe36p+6, -0x1.020896fa0ebcap+1},
+      {0x1.24ab8bf1c52dbp+1, 0x1.31a97c1a8fe36p+6, -0x1.e75f8d48cfb61p+0},
+      {0x1.020896fa0ebc8p+1, 0x1.31a97c1a8fe36p+6, -0x1.020896fa0ebcap+1},
+      {0x1.e75f8d48cfb5dp+0, 0x1.31a97c1a8fe36p+6, -0x1.24ab8bf1c52ddp+1},
+      {0x1.020896fa0ebc8p+1, 0x1.31a97c1a8fe36p+6, -0x1.474e80e97b9f0p+1},
+      {0x1.24ab8bf1c52dbp+1, 0x1.31a97c1a8fe36p+6, -0x1.55a7513f2280ap+1},
+      {0x1.474e80e97b9eep+1, 0x1.31a97c1a8fe36p+6, -0x1.474e80e97b9f0p+1},
+      {0x1.87de2a6aea958p-2, 0x1.390d970e5c86cp+6, -0x1.9de5e554c3b9dp+1},
+      {0x1.1517a7bdb388ap-2, 0x1.390d970e5c86cp+6, -0x1.7b42f05d0d48ap+1},
+      {-0x1.48e8b213a9d2fp-51, 0x1.390d970e5c86cp+6, -0x1.6cea200766671p+1},
+      {-0x1.1517a7bdb389fp-2, 0x1.390d970e5c86cp+6, -0x1.7b42f05d0d48ap+1},
+      {-0x1.87de2a6aea96ep-2, 0x1.390d970e5c86cp+6, -0x1.9de5e554c3b9dp+1},
+      {-0x1.1517a7bdb38a1p-2, 0x1.390d970e5c86cp+6, -0x1.c088da4c7a2b0p+1},
+      {-0x1.7ef0dcc735143p-51, 0x1.390d970e5c86cp+6, -0x1.cee1aaa2210c9p+1},
+      {0x1.1517a7bdb3889p-2, 0x1.390d970e5c86cp+6, -0x1.c088da4c7a2b0p+1},
+      {0x1.d906bcf328d41p-1, 0x1.36e367bee11fap+6, -0x1.9de5e554c3b9dp+1},
+      {0x1.4e7ae9144f0f7p-1, 0x1.36e367bee11fap+6, -0x1.4a472b0faff5ep+1},
+      {-0x1.35ce49407f3e6p-51, 0x1.36e367bee11fap+6, -0x1.27a43617f984cp+1},
+      {-0x1.4e7ae9144f100p-1, 0x1.36e367bee11fap+6, -0x1.4a472b0faff5ep+1},
+      {-0x1.d906bcf328d4bp-1, 0x1.36e367bee11fap+6, -0x1.9de5e554c3b9dp+1},
+      {-0x1.4e7ae9144f102p-1, 0x1.36e367bee11fap+6, -0x1.f1849f99d77dcp+1},
+      {-0x1.b8401740b4d1ep-51, 0x1.36e367bee11fap+6, -0x1.0a13ca48c6f77p+2},
+      {0x1.4e7ae9144f0f5p-1, 0x1.36e367bee11fap+6, -0x1.f1849f99d77dcp+1},
+      {0x1.d906bcf328d41p-1, 0x1.33d3ab6a0b4a8p+6, -0x1.9de5e554c3b9dp+1},
+      {0x1.4e7ae9144f0f7p-1, 0x1.33d3ab6a0b4a8p+6, -0x1.4a472b0faff5ep+1},
+      {-0x1.35ce49407f3e6p-51, 0x1.33d3ab6a0b4a8p+6, -0x1.27a43617f984cp+1},
+      {-0x1.4e7ae9144f100p-1, 0x1.33d3ab6a0b4a8p+6, -0x1.4a472b0faff5ep+1},
+      {-0x1.d906bcf328d4bp-1, 0x1.33d3ab6a0b4a8p+6, -0x1.9de5e554c3b9dp+1},
+      {-0x1.4e7ae9144f102p-1, 0x1.33d3ab6a0b4a8p+6, -0x1.f1849f99d77dcp+1},
+      {-0x1.b8401740b4d1ep-51, 0x1.33d3ab6a0b4a8p+6, -0x1.0a13ca48c6f77p+2},
+      {0x1.4e7ae9144f0f5p-1, 0x1.33d3ab6a0b4a8p+6, -0x1.f1849f99d77dcp+1},
+      {0x1.87de2a6aea95ap-2, 0x1.31a97c1a8fe36p+6, -0x1.9de5e554c3b9dp+1},
+      {0x1.1517a7bdb388cp-2, 0x1.31a97c1a8fe36p+6, -0x1.7b42f05d0d48ap+1},
+      {-0x1.48e8b213a9d2fp-51, 0x1.31a97c1a8fe36p+6, -0x1.6cea200766670p+1},
+      {-0x1.1517a7bdb38a1p-2, 0x1.31a97c1a8fe36p+6, -0x1.7b42f05d0d48ap+1},
+      {-0x1.87de2a6aea970p-2, 0x1.31a97c1a8fe36p+6, -0x1.9de5e554c3b9dp+1},
+      {-0x1.1517a7bdb38a2p-2, 0x1.31a97c1a8fe36p+6, -0x1.c088da4c7a2b0p+1},
+      {-0x1.7ef0dcc735143p-51, 0x1.31a97c1a8fe36p+6, -0x1.cee1aaa2210cap+1},
+      {0x1.1517a7bdb388ap-2, 0x1.31a97c1a8fe36p+6, -0x1.c088da4c7a2b0p+1},
+  };
+  for (const auto origin : {vec3(0.0), captured[0]}) {
+    auto points = captured;
+    for (auto& point : points) point -= origin;
+    const auto hull = Manifold::Hull(points);
+    ASSERT_EQ(hull.Status(), Manifold::Error::NoError);
+    ASSERT_FALSE(hull.IsEmpty());
+    EXPECT_EQ(hull.Genus(), 0);
+    ExpectSupportingPlanes(hull, points);
+    EXPECT_NEAR(hull.Volume(), 19.84668710976564, 1e-10);
+    EXPECT_NEAR(hull.SurfaceArea(), 41.99514594556986, 1e-10);
+    EXPECT_NEAR(HullWinding(hull, vec3(.95, 78.38, -2.84) - origin), 1, 1e-10);
+  }
+}
+
+TEST(Hull, TranslatedCapsule) {
+  const auto sphere = Manifold::Sphere(1, 8);
+  for (const auto offset : {vec3(0.0), vec3(0, 10, 0)}) {
+    const std::vector<Manifold> ends = {
+        sphere.Translate(offset), sphere.Translate(offset + vec3(2, -2, 1))};
+    std::vector<vec3> points;
+    for (const auto& end : ends) {
+      const auto mesh = end.GetMeshGL64();
+      for (size_t i = 0; i < mesh.NumVert(); ++i)
+        points.push_back(mesh.GetVertPos(i));
+    }
+    const auto hull = Manifold::Hull(ends);
+    ASSERT_EQ(hull.Status(), Manifold::Error::NoError);
+    ASSERT_FALSE(hull.IsEmpty());
+    EXPECT_EQ(hull.Genus(), 0);
+    ExpectSupportingPlanes(hull, points);
+    EXPECT_NEAR(hull.Volume(), 10.771236166328256, 1e-10);
+  }
+}
+
+TEST(Hull, ParametricTranslatedTriangleSphere) {
+  constexpr int segments = 8;
+  const double pi = std::acos(-1.0);
+  std::vector<vec3> points;
+  for (const vec3 center : {vec3(0, 60, 0), vec3(2, 58, 0), vec3(0, 58, -1)}) {
+    for (int i = 0; i < segments / 2; ++i) {
+      const double phi = pi * (i + 0.5) / (segments / 2);
+      for (int j = 0; j < segments; ++j) {
+        const double theta = 2 * pi * j / segments;
+        points.push_back(center + vec3(std::sin(phi) * std::cos(theta),
+                                       std::cos(phi),
+                                       std::sin(phi) * std::sin(theta)));
+      }
+    }
+  }
+  for (const vec3 origin : {vec3(0.0), vec3(0, 60, 0)}) {
+    auto cloud = points;
+    for (auto& point : cloud) point -= origin;
+    const auto hull = Manifold::Hull(cloud);
+    ASSERT_EQ(hull.Status(), Manifold::Error::NoError);
+    ASSERT_FALSE(hull.IsEmpty());
+    EXPECT_EQ(hull.Genus(), 0);
+    ExpectSupportingPlanes(hull, cloud);
+    EXPECT_NEAR(hull.Volume(), 17.863848845758767, 1e-10);
+  }
+}
+
+TEST(Hull, TranslatedNearlyCoplanar) {
+  for (const auto shift : {vec3(0.0), vec3(10, -20, 30)}) {
+    std::vector<vec3> points = {{0, 0, 0},       {1, 0, 0},
+                                {0, 1, 0},       {0.25, 0.25, 1e-4},
+                                {0.25, 0.25, 0}, {0.5, 0.25, 0}};
+    for (auto& point : points) point += shift;
+    for (const size_t count : {size_t(4), points.size()}) {
+      const std::vector<vec3> cloud(points.begin(), points.begin() + count);
+      const auto hull = Manifold::Hull(cloud);
+      ASSERT_EQ(hull.Status(), Manifold::Error::NoError);
+      ASSERT_FALSE(hull.IsEmpty());
+      ExpectSupportingPlanes(hull, cloud);
+      EXPECT_NEAR(hull.Volume(), 1e-4 / 6, 1e-12);
+    }
+  }
+}
+
+TEST(Hull, TranslatedDegenerateInputs) {
+  const vec3 shift(10, -20, 30);
+  for (auto points :
+       {std::vector<vec3>(5, vec3(0.0)),
+        std::vector<vec3>{
+            {0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}},
+        std::vector<vec3>{
+            {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {.5, .5, 0}}}) {
+    for (auto& point : points) point += shift;
+    const auto hull = Manifold::Hull(points);
+    EXPECT_EQ(hull.Status(), Manifold::Error::NoError);
+    EXPECT_TRUE(hull.IsEmpty());
+  }
+}

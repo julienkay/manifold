@@ -41,8 +41,9 @@ inline double getSquaredDistance(const vec3& p1, const vec3& p2) {
 }
 // Note that the unit of distance returned is relative to plane's normal's
 // length (divide by N.getNormalized() if needed to get the "real" distance).
-inline double getSignedDistanceToPlane(const vec3& v, const Plane& p) {
-  return la::dot(p.N, v) + p.D;
+inline double getSignedDistanceToPlane(const vec3& v, const Plane& p,
+                                       VecView<const vec3> points) {
+  return la::dot(p.N, v - points[p.pointIndex]);
 }
 
 inline vec3 getTriangleNormal(const vec3& a, const vec3& b, const vec3& c) {
@@ -387,7 +388,8 @@ void QuickHull::createConvexHalfedgeMesh() {
       } else {
         const Plane& P = pvf.P;
         pvf.visibilityCheckedOnIteration = iter;
-        const double d = la::dot(P.N, activePoint) + P.D;
+        const double d =
+            getSignedDistanceToPlane(activePoint, P, originalVertexData);
         if (d > 0) {
           pvf.isVisibleFaceOnCurrentIteration = 1;
           pvf.horizonEdgesOnCurrentIteration = 0;
@@ -520,7 +522,7 @@ void QuickHull::createConvexHalfedgeMesh() {
 
       const vec3 planeNormal = getTriangleNormal(
           originalVertexData[A], originalVertexData[B], activePoint);
-      newFace.P = Plane(planeNormal, activePoint);
+      newFace.P = Plane(planeNormal, activePointIndex);
       newFace.he = AB;
 
       mesh.halfedges[CA].pairedHalfedge =
@@ -660,8 +662,9 @@ void QuickHull::setupInitialTetrahedron() {
     const vec3 N =
         getTriangleNormal(originalVertexData[v[0]], originalVertexData[v[1]],
                           originalVertexData[v[2]]);
-    const Plane trianglePlane(N, originalVertexData[v[0]]);
-    if (trianglePlane.isPointOnPositiveSide(originalVertexData[v[3]])) {
+    const Plane trianglePlane(N, v[0]);
+    if (trianglePlane.isPointOnPositiveSide(originalVertexData[v[3]],
+                                            originalVertexData)) {
       std::swap(v[0], v[1]);
     }
     return mesh.setup(v[0], v[1], v[2], v[3]);
@@ -735,10 +738,10 @@ void QuickHull::setupInitialTetrahedron() {
   const vec3 N =
       getTriangleNormal(baseTriangleVertices[0], baseTriangleVertices[1],
                         baseTriangleVertices[2]);
-  Plane trianglePlane(N, baseTriangleVertices[0]);
+  Plane trianglePlane(N, baseTriangle[0]);
   for (size_t i = 0; i < vCount; i++) {
-    const double d = std::abs(
-        getSignedDistanceToPlane(originalVertexData[i], trianglePlane));
+    const double d = std::abs(getSignedDistanceToPlane(
+        originalVertexData[i], trianglePlane, originalVertexData));
     if (d > maxD) {
       maxD = d;
       maxI = i;
@@ -761,8 +764,9 @@ void QuickHull::setupInitialTetrahedron() {
 
   // Enforce CCW orientation (if user prefers clockwise orientation, swap two
   // vertices in each triangle when final mesh is created)
-  const Plane triPlane(N, baseTriangleVertices[0]);
-  if (triPlane.isPointOnPositiveSide(originalVertexData[maxI])) {
+  const Plane triPlane(N, baseTriangle[0]);
+  if (triPlane.isPointOnPositiveSide(originalVertexData[maxI],
+                                     originalVertexData)) {
     std::swap(baseTriangle[0], baseTriangle[1]);
   }
 
@@ -774,7 +778,7 @@ void QuickHull::setupInitialTetrahedron() {
     const vec3 N1 =
         getTriangleNormal(originalVertexData[v[0]], originalVertexData[v[1]],
                           originalVertexData[v[2]]);
-    const Plane plane(N1, originalVertexData[v[0]]);
+    const Plane plane(N1, v[0]);
     f.P = plane;
   }
 
@@ -809,8 +813,8 @@ void QuickHull::reclaimToIndexVectorPool(std::unique_ptr<Vec<size_t>>& ptr) {
 
 bool QuickHull::addPointToFace(typename MeshBuilder::Face& f,
                                size_t pointIndex) {
-  const double D =
-      getSignedDistanceToPlane(originalVertexData[pointIndex], f.P);
+  const double D = getSignedDistanceToPlane(originalVertexData[pointIndex], f.P,
+                                            originalVertexData);
   if (D > 0 && D * D > epsilonSquared * f.P.sqrNLength) {
     if (!f.pointsOnPositiveSide) {
       f.pointsOnPositiveSide = getIndexVectorFromPool();

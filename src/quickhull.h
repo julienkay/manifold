@@ -88,23 +88,23 @@ class Plane {
  public:
   vec3 N;
 
-  // Signed distance (if normal is of length 1) to the plane from origin
-  double D;
+  // Index of a point on the plane in the QuickHull input.
+  size_t pointIndex;
 
   // Normal length squared
   double sqrNLength;
 
-  bool isPointOnPositiveSide(const vec3& Q) const {
-    double d = la::dot(N, Q) + D;
+  bool isPointOnPositiveSide(const vec3& Q, VecView<const vec3> points) const {
+    double d = la::dot(N, Q - points[pointIndex]);
     if (d >= 0) return true;
     return false;
   }
 
   Plane() = default;
 
-  // Construct a plane using normal N and any point P on the plane
-  Plane(const vec3& N, const vec3& P)
-      : N(N), D(la::dot(-N, P)), sqrNLength(la::dot(N, N)) {}
+  // Construct a plane using a normal and the index of a point on it.
+  Plane(const vec3& N, size_t pointIndex)
+      : N(N), pointIndex(pointIndex), sqrNLength(la::dot(N, N)) {}
 };
 
 struct Ray {
